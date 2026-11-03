@@ -2,9 +2,10 @@
  *
  *  @brief  
  *
- *  @date   
+ *  @date   11/1/2026
  *
- *  @author 
+ *  @author Aravind Gunasekaran (agunasek)
+ *         Julie Nikolatos (mnikolat)
  */
 
 #include <stdint.h>
@@ -18,6 +19,28 @@
 #define LR_RETURN_TO_USER_PSP 0xFFFFFFFD
 /** @brief Interrupt return code to kernel mode using MSP.*/
 #define LR_RETURN_TO_KERNEL_MSP 0xFFFFFFF1
+
+typedef enum {
+  STATE_UNUSED, // no thread created in this slot/deleted
+  STATE_RUNNABLE, // ready - waiting only for the CPU
+  STATE_RUNNING, // on the CPU right now (exactly one thread)
+  STATE_WAITING, // done for this period, or used up C
+  STATE_BLOCKED, // final: may not take a mutex yet
+  } threadState_t;
+
+typedef struct tcb {
+  void *savedMSP //where pendsv put the context for this thread
+  uint32_t svc_status //were we in an svc when swapped
+  static uint32_t static_prio //prio from sys_thread_create - static
+  uint32_t scheduler_prio //prio compared by scheduler, changed by mutex eventually
+  threadState_t state //state of this thread
+  uint32_t period // period between release - deadline
+  uint32_t ticks_this_per //ticks counted in current period
+  uint32_t total_ticks //ticks spent running since created
+  uint32_t next_per //system_ticks value for start of next period
+  uint32_t num_mutexes //number of held mutexes by this tcb - final
+} tcb_t;
+  
 
 /**
  * @brief      Heap high and low pointers.
@@ -58,6 +81,14 @@ typedef struct {
   uint32_t pc;   /** @brief Register value for pc */
   uint32_t xPSR; /** @brief Register value for xPSR */
 } interrupt_stack_frame;
+
+tcb_t *current_tcb;              //the currently running tcb
+tcb_t *tcb_array[NUM_TCBS];      //array of all tcbs, length of the number of tcbs
+bool scheduler_state;            //whether or not the scheduler is started
+volatile uint32_t system_ticks;  //ticks since the scheduler started for sys_get_time()
+uint32_t NUM_TCBS;               //number of max threads
+uint32_t user_thread_count;      //number of user threads currently running
+float total_util;                //totals for UB test at this moment
 
 
 void *pendsv_c_handler(void *context_ptr){

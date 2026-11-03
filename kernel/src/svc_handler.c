@@ -1,11 +1,12 @@
 /**
- * @file 
+ * @file svc_handler.c
  *
  * @brief      
  *
- * @date       
+ * @date     11/1/26  
  *
- * @author     
+ * @author   Aravind Gunasekaran (agunasek)
+ *         Julie Nikolatos (mnikolat)  
  */
 
 #include <stdint.h>
