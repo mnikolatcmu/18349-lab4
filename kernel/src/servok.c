@@ -1,5 +1,5 @@
 /**
- * @file svc_handler.c
+ * @file servok.c
  *
  * @brief Initialize, enable, and set servo through gpio
  *

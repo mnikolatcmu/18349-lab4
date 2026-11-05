@@ -12,6 +12,7 @@
  #include <debug.h>
  #include <svc_num.h>
  #include <syscall.h>
+ #include <servok.h>
  
  #define UNUSED __attribute__((unused))
  

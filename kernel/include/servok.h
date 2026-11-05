@@ -24,6 +24,9 @@ extern int ch1_en;
 
 #define PWM_SLOT_US 10000
 
+/** @brief index of TIM2 in timer_base - the timer the servos use */
+#define TIMER_2 2
+
 void servo_init();
 
 int sys_servo_enable(uint8_t channel, uint8_t enabled);

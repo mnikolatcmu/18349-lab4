@@ -71,20 +71,22 @@ intrinsic void disable_interrupts(void)
 intrinsic int save_interrupt_state_and_disable(void)
 {
   int result;
-  int disable_constant = 1;
   __asm volatile("mrs %0, PRIMASK" : "=r"(result));
-  __asm volatile("msr PRIMASK, %0" : "=r"(disable_constant));
-  __asm volatile("cpsid i");
+  // "memory" so the compiler can't move memory reads/writes out of the critical section
+  __asm volatile("cpsid i" : : : "memory");
   return result;
 }
 
 /**
- * @brief      Saves the interrupt enabled state and
- *             disables interrupts.
+ * @brief      Restores the interrupt enabled state saved by
+ *             save_interrupt_state_and_disable().
+ *
+ * @param[in]  state  value returned by save_interrupt_state_and_disable()
  */
 intrinsic void restore_interrupt_state(int state)
 {
-  __asm volatile("msr PRIMASK, %0" : "=r"(state));
+  // state is an input - it was "=r" (an output) before, so msr wrote a random register
+  __asm volatile("msr PRIMASK, %0" : : "r"(state) : "memory");
 }
 
 /**
