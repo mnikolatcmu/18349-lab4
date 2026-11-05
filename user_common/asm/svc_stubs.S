@@ -128,10 +128,10 @@ _times:
 _getpid:
   bkpt
 
+@ default idle thread - used when thread_init gets a NULL idle_fn
+@ sleeps until the next interrupt, forever
 .thumb_func
 .global idle_default
 idle_default:
-  bkpt
- 
- 
- 
+  wfi
+  b idle_default
