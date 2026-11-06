@@ -81,6 +81,14 @@ uint32_t systick_get_ticks() {
 }
 
 /**
+ * @brief stops the systick counter and its interrupt
+ */
+void systick_disable() {
+    struct systick_reg_map *sys = SYSTICK_BASE;
+    sys->CTRL &= ~(TICKINT | COUNTER_EN);
+}
+
+/**
  * @brief increments the variable systick_ticks and calls schedulerTick
  */
 void systick_c_handler() {

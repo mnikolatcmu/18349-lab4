@@ -58,7 +58,7 @@
        r = sys_thread_create((void *)psp[0], psp[1], psp[2], psp[3], vargp);
        break;
      }
-     case SVC_THR_KILL: sys_thread_kill(); break;
+     case SVC_THR_KILL: sys_thread_kill(psp); break;
      case SVC_SCHD_START: r = sys_scheduler_start(psp[0]); break;
      case SVC_MUT_INIT: r = (int)sys_mutex_init(psp[0]); break;
      case SVC_MUT_LOK: sys_mutex_lock((kmutex_t *)psp[0]); break;

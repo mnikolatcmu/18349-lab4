@@ -106,9 +106,11 @@ void sys_wait_until_next_period( void );
 *             main thread or the idle thread or if current thread exited
 *             while holding a mutex.
 *
+* @param      frame  stacked registers of the calling thread
+*
 * @return     Does not return.
 */
-void sys_thread_kill( void );
+void sys_thread_kill( uint32_t *frame );
 
 /**
  * @brief      Get the current time.
@@ -142,8 +144,10 @@ void sys_wait_until_next_period( void );
 *             main thread or the idle thread or if current thread exited
 *             while holding a mutex.
 *
+* @param      frame  stacked registers of the calling thread
+*
 * @return     Does not return.
 */
-void sys_thread_kill( void );
+void sys_thread_kill( uint32_t *frame );
 
 #endif /* _SYSCALL_THREAD_H_ */

@@ -15,6 +15,7 @@
 #include "mpu.h"
 #include "arm.h"
 #include "systick.h"
+#include "syscall.h"
 
 /** @brief total number of tcbs, 14 user threads + idle + default */
 #define NUM_TCBS 16
@@ -39,6 +40,9 @@
 
 /** @brief clears the thumb bit for the stacked pc */
 #define PC_MASK 0xFFFFFFFE
+
+/** @brief index of the pc in the stacked frame */
+#define STACKED_PC 6
 
 /** @brief      Initial XPSR value, all 0s except thumb bit. */
 #define XPSR_INIT 0x1000000
@@ -142,6 +146,9 @@ extern void idle_default(void);
 /** @brief thread_kill svc stub in svc_stubs.S, threads return into it */
 extern void thread_kill(void);
 
+//in systick.c
+void systick_disable(void);
+
 /** @brief all the tcbs, indexed by priority */
 tcb_t tcbArray[NUM_TCBS];
 
@@ -170,17 +177,33 @@ float totalUtil;
 bool schedulerStarted;
 
 /**
- * @brief  round robin, picks the next runnable user thread after the current
- *         one and wraps around. picks idle if none can run
+ * @brief  checks if a tcb belongs to a user thread (not idle or main)
+ *
+ * @param tcb  the tcb to check
+ *
+ * @return true if it is a user thread
+ */
+static bool isUserThread(tcb_t *tcb){
+  return (uint32_t)(tcb - tcbArray) < maxThreads;
+}
+
+/**
+ * @brief  rms, picks the runnable user thread with the highest priority
+ *         (lowest number). picks idle if none can run, or main once every
+ *         user thread is gone
  *
  * @return the tcb to run next
  */
 static tcb_t *findNextThread(void){
-  uint32_t start = currentTcb - tcbArray;
-  for (uint32_t k = 1; k <= maxThreads; k++){
-    uint32_t i = (start + k) % maxThreads;
-    if (tcbArray[i].state == STATE_RUNNABLE) return &tcbArray[i];
+  tcb_t *best = NULL;
+  for (uint32_t i = 0; i < maxThreads; i++){
+    tcb_t *tcb = &tcbArray[i];
+    if (tcb->state != STATE_RUNNABLE) continue;
+    if ((best == NULL) || (tcb->schedulerPrio < best->schedulerPrio)) best = tcb;
   }
+
+  if (best != NULL) return best;
+  if (userThreadCount == 0) return &tcbArray[DEFAULT_INDEX];
   return &tcbArray[IDLE_INDEX];
 }
 
@@ -211,12 +234,32 @@ void *pendsv_c_handler(void *context_ptr){
 }
 
 /**
- * @brief  called by systick_c_handler each tick. counts the tick and pends a
- *         context swap once the scheduler has started
+ * @brief  called by systick_c_handler each tick. charges the tick to the
+ *         thread that was running, stops it if it used up C, wakes up
+ *         threads whose next period started, then pends a context swap
  */
 void schedulerTick(void){
   if (!schedulerStarted) return;
   systemTicks++;
+
+  currentTcb->totalTicks++;
+  if (isUserThread(currentTcb)){
+    currentTcb->ticksThisPeriod++;
+    if ((currentTcb->state == STATE_RUNNING) && (currentTcb->ticksThisPeriod >= currentTcb->computeTime)){
+      currentTcb->state = STATE_WAITING;
+    }
+  }
+
+  for (uint32_t i = 0; i < maxThreads; i++){
+    tcb_t *tcb = &tcbArray[i];
+    if (tcb->state == STATE_UNUSED) continue;
+    if (systemTicks >= tcb->nextPeriod){
+      tcb->nextPeriod += tcb->period;
+      tcb->ticksThisPeriod = 0;
+      if (tcb->state == STATE_WAITING) tcb->state = STATE_RUNNABLE;
+    }
+  }
+
   pend_pendsv();
 }
 
@@ -435,14 +478,62 @@ uint32_t sys_get_time(){
   return systemTicks;
 }
 
+/**
+ * @brief  returns how many ticks the running thread has used since it
+ *         was created, over all of its periods
+ *
+ * @return number of ticks
+ */
 uint32_t sys_thread_time(){
-  return 0U;
+  return currentTcb->totalTicks;
 }
 
-void sys_thread_kill(){
+/**
+ * @brief  kills the running thread and frees its slot. main calling it
+ *         exits the program, and the idle thread calling it goes to the
+ *         default idle function instead. once the last user thread is
+ *         gone, systick stops and main runs again
+ *
+ * @param frame  stacked registers of the calling thread
+ */
+void sys_thread_kill(uint32_t *frame){
+  if ((currentTcb == NULL) || (currentTcb == &tcbArray[DEFAULT_INDEX])){
+    sys_exit(-1);
+  }
+
+  int interruptState = save_interrupt_state_and_disable();
+
+  if (currentTcb == &tcbArray[IDLE_INDEX]){
+    frame[STACKED_PC] = (uint32_t)idle_default & PC_MASK;
+    restore_interrupt_state(interruptState);
+    return;
+  }
+
+  currentTcb->state = STATE_UNUSED;
+  userThreadCount--;
+  totalUtil -= (float)currentTcb->computeTime / (float)currentTcb->period;
+
+  if (userThreadCount == 0){
+    totalUtil = 0;
+    systick_disable();
+    schedulerStarted = false;
+  }
+
+  pend_pendsv();
+  restore_interrupt_state(interruptState);
 }
 
+/**
+ * @brief  gives up the rest of this period. the thread waits until its next
+ *         period starts. does nothing for the idle thread or main
+ */
 void sys_wait_until_next_period(){
+  int interruptState = save_interrupt_state_and_disable();
+  if (isUserThread(currentTcb)){
+    currentTcb->state = STATE_WAITING;
+    pend_pendsv();
+  }
+  restore_interrupt_state(interruptState);
 }
 
 kmutex_t *sys_mutex_init( uint32_t max_prio ) {
