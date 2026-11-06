@@ -72,7 +72,6 @@ intrinsic int save_interrupt_state_and_disable(void)
 {
   int result;
   __asm volatile("mrs %0, PRIMASK" : "=r"(result));
-  // "memory" so the compiler can't move memory reads/writes out of the critical section
   __asm volatile("cpsid i" : : : "memory");
   return result;
 }
@@ -85,7 +84,6 @@ intrinsic int save_interrupt_state_and_disable(void)
  */
 intrinsic void restore_interrupt_state(int state)
 {
-  // state is an input - it was "=r" (an output) before, so msr wrote a random register
   __asm volatile("msr PRIMASK, %0" : : "r"(state) : "memory");
 }
 

@@ -9,6 +9,5 @@
 enter_user_mode:
   ldr r0, =__psp_stack_top
   msr psp, r0
-  b crt0
   b _crt0
   bkpt

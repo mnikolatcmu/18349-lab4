@@ -126,9 +126,19 @@ _bus_fault_ :
 _usage_fault_ :
   bkpt
 
+@ pendsv handler, saves psp, r4-r11 and the exception return code on the
+@ current thread's kernel stack. pendsv_c_handler returns the msp of the
+@ next thread, and its context gets restored from there
 .thumb_func
 _pend_sv_ :
-  bkpt
+  mrs r0, psp
+  push {r0, r4-r11, lr}
+  mov r0, sp
+  bl pendsv_c_handler
+  mov sp, r0
+  pop {r0, r4-r11, lr}
+  msr psp, r0
+  bx lr
 
 .thumb_func
 _spi1_handler:

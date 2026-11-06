@@ -24,7 +24,7 @@ extern int ch1_en;
 
 #define PWM_SLOT_US 10000
 
-/** @brief index of TIM2 in timer_base - the timer the servos use */
+/** @brief index of TIM2 in timer_base, used for the servos */
 #define TIMER_2 2
 
 void servo_init();

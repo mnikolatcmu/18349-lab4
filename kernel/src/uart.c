@@ -14,6 +14,7 @@
  #include <uart_polling.h>
  #include <nvic.h>
  #include <gpio.h>
+ #include <arm.h>
  
  /** @brief The UART register map. */
  struct uart_reg_map {
@@ -162,9 +163,11 @@
   */
  int uart_put_byte(char c){
    struct uart_reg_map *uart = UART2_BASE;
+   int interruptState = save_interrupt_state_and_disable();
    uart->CR1 &= ~(TXEIE_EN);
    int q_status = buf_queue(tx_buf, c);
    uart->CR1 |= TXEIE_EN;
+   restore_interrupt_state(interruptState);
    return q_status;
  }
  
@@ -175,9 +178,11 @@
   */
  int uart_get_byte(char *c){
    struct uart_reg_map *uart = UART2_BASE;
+   int interruptState = save_interrupt_state_and_disable();
    uart->CR1 &= ~(RXNEIE_EN);
    int q_status = buf_dequeue(rx_buf, c);
    uart->CR1 |= RXNEIE_EN;
+   restore_interrupt_state(interruptState);
    return q_status;
  }
  
@@ -228,24 +233,6 @@
  /**
   * @brief Flushes UART buffers tx_buf and rx_buf
   */
- //void uart_flush(){
- //  struct uart_reg_map *uart = UART2_BASE;
- //  int TX_empty = 0;
- //  int RX_empty = 0;
- //  char *c = '\0';
- //  while ((TX_empty == 0) && (RX_empty == 0)){
- //    if (TX_empty == 0){
- //      uart->CR1 &= ~(TXEIE_EN);
- //      TX_empty = buf_dequeue(tx_buf, c);
- //      uart->CR1 |= TXEIE_EN;
- //    }
- //    if (RX_empty == 0){
- //      uart->CR1 &= ~(RXNEIE_EN);
- //      RX_empty = buf_dequeue(rx_buf, c);
- //      uart->CR1 |= RXNEIE_EN;
- //    }
- //  }
- //}
  void uart_flush(){
    struct uart_reg_map *uart = UART2_BASE;
    char c;

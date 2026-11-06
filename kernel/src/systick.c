@@ -25,13 +25,6 @@ struct systick_reg_map {
 /** @brief Base address for SYSTICK registers */
 #define SYSTICK_BASE  (struct systick_reg_map *) 0xE000E010
 
-/** @brief system clock is 16MHz , we want ~1000 ticks/second for 1kHz*/
-#define SYSTEM_CLOCK_HZ  (16000000U)
-#define TICKS_PER_SEC (1000U)
-
-/** @brief Reload value for 1kHz (1kHz = 1 ms per interrupt) */
-#define SYS_RELOAD ((SYSTEM_CLOCK_HZ / TICKS_PER_SEC) - 1)
-
 /** @brief Clear value for current value in VAL reg */
 #define SYS_CURR_CLR  0x00000000
 
@@ -49,13 +42,18 @@ struct systick_reg_map {
 static volatile uint32_t systick_ticks = 0;
 
 
+//in syscall_thread.c
+void schedulerTick(void);
+
 /**
  * @brief initializes systick: sets reload value, resets curr value, and enables counter
+ *
+ * @param frequency  how many times a second systick fires (Hz)
  */
-void systick_init() {
+void systick_init(uint32_t frequency) {
     //compute & program reload val
     struct systick_reg_map *sys = SYSTICK_BASE;
-    sys->LOAD = SYS_RELOAD;
+    sys->LOAD = (BASE_FREQ / frequency) - 1;
     //Clear current
     sys->VAL = SYS_CURR_CLR;
     //program control and status register
@@ -83,9 +81,10 @@ uint32_t systick_get_ticks() {
 }
 
 /**
- * @brief increments the variable systick_ticks
+ * @brief increments the variable systick_ticks and calls schedulerTick
  */
 void systick_c_handler() {
     //put function address into interrupt vector table
     systick_ticks++;
+    schedulerTick();
 }
