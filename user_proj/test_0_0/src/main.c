@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <syscall_thread.h>
 
 /** @brief thread user space stack size - 1KB */
 #define USR_STACK_WORDS 256
@@ -28,15 +29,15 @@ void idle_thread() {
 }
 
 int main( UNUSED int argc, UNUSED char *const argv[] ) {
-  ABORT_ON_ERROR( thread_init( NUM_THREADS, USR_STACK_WORDS, &idle_thread, NUM_MUTEXES ) );
+  ABORT_ON_ERROR( sys_thread_init( NUM_THREADS, USR_STACK_WORDS, &idle_thread, NUM_MUTEXES ) );
 
   printf( "Successfully initialized threads...\n" );
 
-  ABORT_ON_ERROR( thread_create( &thread_0, 0, 100, 500, NULL ) );
+  ABORT_ON_ERROR( sys_thread_create( &thread_0, 0, 100, 500, NULL ) );
 
   printf( "Successfully created threads! Starting scheduler...\n" );
 
-  ABORT_ON_ERROR( scheduler_start( CLOCK_FREQUENCY ), "Threads are unschedulable!\n" );
+  ABORT_ON_ERROR( sys_scheduler_start( CLOCK_FREQUENCY ), "Threads are unschedulable!\n" );
 
   while (1);
 
