@@ -43,7 +43,7 @@
  int sys_write(int file, char *ptr, int len){
    if (file != STDOUT_FILENO) return -1;
    for (int i = 0; i < len; i++){
-     while (uart_put_byte(ptr[i]) == -1);
+     while (uart_put_byte(ptr[i]) != 0);
    }
    return len;
  }

@@ -62,9 +62,9 @@ int kernel_main() {
 
     systick_init(BOOT_TICK_FREQ);
     i2c_master_init(I2C_CLK_KHZ);
-    lcd_driver_init();
+    //lcd_driver_init();
 
-    servo_init();
+    //servo_init();
 
     enter_user_mode();
 
