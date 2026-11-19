@@ -558,27 +558,68 @@ void sys_wait_until_next_period(){
  * @return     A pointer to the mutex. NULL if max_mutexes would be exceeded.
  */
 kmutex_t *sys_mutex_init( uint32_t max_prio ) {
-  if (mutexCount >= MAX_MUTEXES)
+  int interruptState = save_interrupt_state_and_disable();
+  //check room for mutex
+  if (mutexCount >= MAX_MUTEXES){
+    restore_interrupt_state(interruptState);
     return NULL;
-  kmutex_t *new_mutex = sizeof(kmutex_t);
+  }
+  //init the new mutex, set all the fields
+  kmutex_t *new_mutex = &mutexArray[mutexCount];
   new_mutex->prio_ceil = max_prio;
   new_mutex->locked_by = NOT_LOCKED;
   new_mutex->index = mutexCount;
-  mutexArray[mutexCount] = new_mutex;
   mutexCount++;
+  //restore state and return mutex
+  restore_interrupt_state(interruptState);
   return new_mutex;
+}
+
+/**
+* @brief checks that a mutex is valid/initialized correctly
+*
+* @param mutex the mutex to check
+*
+* @return true if it is one of our mutexes
+*/
+static bool is_valid_mutex(kmutex_t *mutex){
+  return (mutex >= mutexArray) && (mutex < &mutexArray[mutexCount]);
 }
 
 /**
  * @brief      Lock a mutex
  *
  *             This function will not return until the current thread has
- *             obtained the mutex.
+ *             obtained the mutex
  *
- * @param[in]  mutex  The mutex to act on.
+ * @param[in]  mutex  The mutex to act on
  */
 void sys_mutex_lock( kmutex_t *mutex ) {
-  (void) mutex;
+  if (!is_valid_mutex(mutex) || !isUserThread(currentTcb)){
+    printk("warning: bad mutex_lock call\n");
+    return;
+  }
+  if (currentTcb->staticPrio < mutex->prio_ceil){
+    printk("warning: thread %d is above the mutex ceiling, killing it\n", 
+      (int)currentTcb->staticPrio);
+    sys_thread_kill(NULL);
+  }
+  uint32_t tcb = currentTcb - tcbArray;
+  if (mutex->locked_by == tcb){
+    printk("warning: thread %d already holds this mutex\n", (int)tcb);
+    return;
+  }
+  int interruptState = save_interrupt_state_and_disable();
+  while (mutex->locked_by != NOT_LOCKED){
+    currentTcb->state = STATE_BLOCKED;
+    pend_pendsv();
+    restore_interrupt_state(interruptState);
+    interruptState = save_interrupt_state_and_disable();
+  }
+  mutex->locked_by = tcb;
+  currentTcb->heldMutexes |= (1U << mutex->index);
+  restore_interrupt_state(interruptState);
+  return;
 }
 
 /**
@@ -587,5 +628,22 @@ void sys_mutex_lock( kmutex_t *mutex ) {
  * @param[in]  mutex  The mutex to act on.
  */
 void sys_mutex_unlock( kmutex_t *mutex ) {
-  (void) mutex;
+  if (!isValidMutex(mutex)){
+    printk("warning: bad mutex_unlock call\n");
+    return;
+  }
+  uint32_t me = currentTcb - tcbArray;
+  if (mutex->locked_by != me){
+    printk("warning: thread %d does not hold this mutex\n", (int)me);
+    return;
+  }
+  int interruptState = save_interrupt_state_and_disable();
+  mutex->locked_by = NOT_LOCKED;
+  currentTcb->heldMutexes &= ~(1U << mutex->index);
+  for (uint32_t i = 0; i < maxThreads; i++){
+    if (tcbArray[i].state == STATE_BLOCKED) 
+    tcbArray[i].state = STATE_RUNNABLE;
+  }
+  pend_pendsv();
+  restore_interrupt_state(interruptState);
 }
