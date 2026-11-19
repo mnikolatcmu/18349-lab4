@@ -32,6 +32,9 @@
 /** @brief max number of mutexes, so they fit in a 32 bit bitvector */
 #define MAX_MUTEXES 32
 
+/** @brief shows that the mutex is not locked by anyh thread currently */
+#define NOT_LOCKED 33
+
 /** @brief bytes in a word */
 #define WORD_SIZE 4
 
@@ -49,6 +52,7 @@
 
 /** @brief Interrupt return code to user mode using PSP.*/
 #define LR_RETURN_TO_USER_PSP 0xFFFFFFFD
+
 /** @brief Interrupt return code to kernel mode using MSP.*/
 #define LR_RETURN_TO_KERNEL_MSP 0xFFFFFFF1
 
@@ -175,6 +179,12 @@ float totalUtil;
 
 /** @brief whether or not the scheduler is started */
 bool schedulerStarted;
+
+/** @brief array of all the mutexes */
+kmutex_t mutexArray[MAX_MUTEXES]
+
+/** @brief number of current mutexes */
+kmutex_t mutexCount;
 
 /**
  * @brief  checks if a tcb belongs to a user thread (not idle or main)
@@ -536,15 +546,46 @@ void sys_wait_until_next_period(){
   restore_interrupt_state(interruptState);
 }
 
+/**
+ * @brief      Used to create a mutex object. The mutex resides in kernel
+ *             space. The user receives a handle to it. With memory
+ *             protection, the user cannot modify it. However, the pointer
+ *             can still be passed around and used with lock and unlock.
+ *
+ * @param      max_prio  The maximum priority of a thread which could use
+ *                       this mutex (the lowest number, following convention).
+ *
+ * @return     A pointer to the mutex. NULL if max_mutexes would be exceeded.
+ */
 kmutex_t *sys_mutex_init( uint32_t max_prio ) {
-  (void) max_prio;
-  return NULL;
+  if (mutexCount >= MAX_MUTEXES)
+    return NULL;
+  kmutex_t *new_mutex = sizeof(kmutex_t);
+  new_mutex->prio_ceil = max_prio;
+  new_mutex->locked_by = NOT_LOCKED;
+  new_mutex->index = mutexCount;
+  mutexArray[mutexCount] = new_mutex;
+  mutexCount++;
+  return new_mutex;
 }
 
+/**
+ * @brief      Lock a mutex
+ *
+ *             This function will not return until the current thread has
+ *             obtained the mutex.
+ *
+ * @param[in]  mutex  The mutex to act on.
+ */
 void sys_mutex_lock( kmutex_t *mutex ) {
   (void) mutex;
 }
 
+/**
+ * @brief      Unlock a mutex
+ *
+ * @param[in]  mutex  The mutex to act on.
+ */
 void sys_mutex_unlock( kmutex_t *mutex ) {
   (void) mutex;
 }
