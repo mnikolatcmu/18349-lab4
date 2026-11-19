@@ -510,6 +510,11 @@ void sys_thread_kill(uint32_t *frame){
   if ((currentTcb == NULL) || (currentTcb == &tcbArray[DEFAULT_INDEX])){
     sys_exit(-1);
   }
+  if (currentTcb->heldMutexes != 0){
+    printk("warning: thread %d exited while holding a mutex\n",
+    (int)currentTcb->staticPrio);
+    sys_exit(-1);
+    }
 
   int interruptState = save_interrupt_state_and_disable();
 
@@ -595,20 +600,24 @@ static bool is_valid_mutex(kmutex_t *mutex){
  * @param[in]  mutex  The mutex to act on
  */
 void sys_mutex_lock( kmutex_t *mutex ) {
+  //check mutex and tcb
   if (!is_valid_mutex(mutex) || !isUserThread(currentTcb)){
     printk("warning: bad mutex_lock call\n");
     return;
   }
+  //check priority
   if (currentTcb->staticPrio < mutex->prio_ceil){
     printk("warning: thread %d is above the mutex ceiling, killing it\n", 
       (int)currentTcb->staticPrio);
     sys_thread_kill(NULL);
   }
+  //find what tcb we're looking at, figure out if its holding this mutex
   uint32_t tcb = currentTcb - tcbArray;
   if (mutex->locked_by == tcb){
     printk("warning: thread %d already holds this mutex\n", (int)tcb);
     return;
   }
+  //block all unblocked tcbs by mutex
   int interruptState = save_interrupt_state_and_disable();
   while (mutex->locked_by != NOT_LOCKED){
     currentTcb->state = STATE_BLOCKED;
@@ -628,15 +637,18 @@ void sys_mutex_lock( kmutex_t *mutex ) {
  * @param[in]  mutex  The mutex to act on.
  */
 void sys_mutex_unlock( kmutex_t *mutex ) {
-  if (!isValidMutex(mutex)){
+  //check mutex validity
+  if (!is_valid_mutex(mutex)){
     printk("warning: bad mutex_unlock call\n");
     return;
   }
-  uint32_t me = currentTcb - tcbArray;
-  if (mutex->locked_by != me){
+  //make sure the thread holds the mutex
+  uint32_t tcb = currentTcb - tcbArray;
+  if (mutex->locked_by != tcb){
     printk("warning: thread %d does not hold this mutex\n", (int)me);
     return;
   }
+  //save state and unlock
   int interruptState = save_interrupt_state_and_disable();
   mutex->locked_by = NOT_LOCKED;
   currentTcb->heldMutexes &= ~(1U << mutex->index);
@@ -644,6 +656,7 @@ void sys_mutex_unlock( kmutex_t *mutex ) {
     if (tcbArray[i].state == STATE_BLOCKED) 
     tcbArray[i].state = STATE_RUNNABLE;
   }
+  //pend and restore interrupt state
   pend_pendsv();
   restore_interrupt_state(interruptState);
 }
