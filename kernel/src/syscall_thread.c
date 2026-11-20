@@ -520,7 +520,7 @@ void sys_thread_kill(uint32_t *frame){
     printk("warning: thread %d exited while holding a mutex\n",
     (int)currentTcb->staticPrio);
     sys_exit(-1);
-  }
+    }
 
   int interruptState = save_interrupt_state_and_disable();
 
@@ -690,10 +690,9 @@ void sys_mutex_unlock( kmutex_t *mutex ) {
     printk("warning: bad mutex_unlock call\n");
     return;
   }
-  //make sure the thread holds the mutex
-  uint32_t tcb = currentTcb - tcbArray;
-  if (mutex->locked_by != tcb){
-    printk("warning: thread %d does not hold this mutex\n", (int)tcb);
+  uint32_t me = currentTcb - tcbArray;
+  if (mutex->locked_by != me){
+    printk("warning: thread %d does not hold this mutex\n", (int)me);
     return;
   }
   //save state and unlock
