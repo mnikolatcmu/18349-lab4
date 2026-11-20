@@ -16,6 +16,7 @@
 #include "arm.h"
 #include "systick.h"
 #include "syscall.h"
+#include "printk.h"
 
 /** @brief total number of tcbs, 14 user threads + idle + default */
 #define NUM_TCBS 16
@@ -32,7 +33,7 @@
 /** @brief max number of mutexes, so they fit in a 32 bit bitvector */
 #define MAX_MUTEXES 32
 
-/** @brief shows that the mutex is not locked by anyh thread currently */
+/** @brief shows that the mutex is not locked by any thread currently */
 #define NOT_LOCKED 33
 
 /** @brief bytes in a word */
@@ -181,10 +182,10 @@ float totalUtil;
 bool schedulerStarted;
 
 /** @brief array of all the mutexes */
-kmutex_t mutexArray[MAX_MUTEXES]
+kmutex_t mutexArray[MAX_MUTEXES];
 
 /** @brief number of current mutexes */
-kmutex_t mutexCount;
+uint32_t mutexCount;
 
 /**
  * @brief  checks if a tcb belongs to a user thread (not idle or main)
@@ -210,6 +211,7 @@ static tcb_t *findNextThread(void){
     tcb_t *tcb = &tcbArray[i];
     if (tcb->state != STATE_RUNNABLE) continue;
     if ((best == NULL) || (tcb->schedulerPrio < best->schedulerPrio)) best = tcb;
+    else if ((tcb->schedulerPrio == best->schedulerPrio) && (tcb->heldMutexes != 0)) best = tcb;
   }
 
   if (best != NULL) return best;
@@ -257,6 +259,9 @@ void schedulerTick(void){
     currentTcb->ticksThisPeriod++;
     if ((currentTcb->state == STATE_RUNNING) && (currentTcb->ticksThisPeriod >= currentTcb->computeTime)){
       currentTcb->state = STATE_WAITING;
+      if (currentTcb->heldMutexes != 0){
+        printk("warning: thread %d used up C while holding a mutex\n", (int)currentTcb->staticPrio);
+      }
     }
   }
 
@@ -364,6 +369,7 @@ int sys_thread_init(
   maxThreads = max_threads;
   stackBytes = bytes;
   maxMutexes = max_mutexes;
+  mutexCount = 0;
   systemTicks = 0;
   userThreadCount = 0;
   totalUtil = 0;
@@ -510,6 +516,11 @@ void sys_thread_kill(uint32_t *frame){
   if ((currentTcb == NULL) || (currentTcb == &tcbArray[DEFAULT_INDEX])){
     sys_exit(-1);
   }
+  if (currentTcb->heldMutexes != 0){
+    printk("warning: thread %d exited while holding a mutex\n",
+    (int)currentTcb->staticPrio);
+    sys_exit(-1);
+  }
 
   int interruptState = save_interrupt_state_and_disable();
 
@@ -538,6 +549,9 @@ void sys_thread_kill(uint32_t *frame){
  *         period starts. does nothing for the idle thread or main
  */
 void sys_wait_until_next_period(){
+  if (currentTcb->heldMutexes != 0){
+    printk("warning: thread %d waited while holding a mutex\n", (int)currentTcb->staticPrio);
+  }
   int interruptState = save_interrupt_state_and_disable();
   if (isUserThread(currentTcb)){
     currentTcb->state = STATE_WAITING;
@@ -560,7 +574,7 @@ void sys_wait_until_next_period(){
 kmutex_t *sys_mutex_init( uint32_t max_prio ) {
   int interruptState = save_interrupt_state_and_disable();
   //check room for mutex
-  if (mutexCount >= MAX_MUTEXES){
+  if (mutexCount >= maxMutexes){
     restore_interrupt_state(interruptState);
     return NULL;
   }
@@ -587,6 +601,42 @@ static bool is_valid_mutex(kmutex_t *mutex){
 }
 
 /**
+ * @brief  highest ceiling (smallest number) among mutexes held by other threads
+ *
+ * @param me  tcb index of the thread asking
+ *
+ * @return that ceiling, or UINT32_MAX if no other thread holds a mutex
+ */
+static uint32_t ceilingHeldByOthers(uint32_t me){
+  uint32_t lowest = UINT32_MAX;
+  for (uint32_t i = 0; i < mutexCount; i++){
+    kmutex_t *mutex = &mutexArray[i];
+    if ((mutex->locked_by != NOT_LOCKED) && (mutex->locked_by != me) && (mutex->prio_ceil < lowest)){
+      lowest = mutex->prio_ceil;
+    }
+  }
+  return lowest;
+}
+
+/**
+ * @brief  priority a thread should run at: its own, or the highest ceiling
+ *         of the mutexes it still holds
+ *
+ * @param tcb  the thread
+ *
+ * @return the priority to put in schedulerPrio
+ */
+static uint32_t recomputePriority(tcb_t *tcb){
+  uint32_t prio = tcb->staticPrio;
+  for (uint32_t i = 0; i < mutexCount; i++){
+    if ((tcb->heldMutexes & (1U << i)) && (mutexArray[i].prio_ceil < prio)){
+      prio = mutexArray[i].prio_ceil;
+    }
+  }
+  return prio;
+}
+
+/**
  * @brief      Lock a mutex
  *
  *             This function will not return until the current thread has
@@ -595,22 +645,26 @@ static bool is_valid_mutex(kmutex_t *mutex){
  * @param[in]  mutex  The mutex to act on
  */
 void sys_mutex_lock( kmutex_t *mutex ) {
+  //check mutex and tcb
   if (!is_valid_mutex(mutex) || !isUserThread(currentTcb)){
     printk("warning: bad mutex_lock call\n");
     return;
   }
+  //check priority
   if (currentTcb->staticPrio < mutex->prio_ceil){
     printk("warning: thread %d is above the mutex ceiling, killing it\n", 
       (int)currentTcb->staticPrio);
     sys_thread_kill(NULL);
   }
+  //find what tcb we're looking at, figure out if its holding this mutex
   uint32_t tcb = currentTcb - tcbArray;
   if (mutex->locked_by == tcb){
     printk("warning: thread %d already holds this mutex\n", (int)tcb);
     return;
   }
+  //block all unblocked tcbs by mutex
   int interruptState = save_interrupt_state_and_disable();
-  while (mutex->locked_by != NOT_LOCKED){
+  while ((mutex->locked_by != NOT_LOCKED) || (currentTcb->schedulerPrio >= ceilingHeldByOthers(tcb))){
     currentTcb->state = STATE_BLOCKED;
     pend_pendsv();
     restore_interrupt_state(interruptState);
@@ -618,6 +672,9 @@ void sys_mutex_lock( kmutex_t *mutex ) {
   }
   mutex->locked_by = tcb;
   currentTcb->heldMutexes |= (1U << mutex->index);
+  if (mutex->prio_ceil < currentTcb->schedulerPrio){
+    currentTcb->schedulerPrio = mutex->prio_ceil;
+  }
   restore_interrupt_state(interruptState);
   return;
 }
@@ -628,22 +685,27 @@ void sys_mutex_lock( kmutex_t *mutex ) {
  * @param[in]  mutex  The mutex to act on.
  */
 void sys_mutex_unlock( kmutex_t *mutex ) {
-  if (!isValidMutex(mutex)){
+  //check mutex validity
+  if (!is_valid_mutex(mutex)){
     printk("warning: bad mutex_unlock call\n");
     return;
   }
-  uint32_t me = currentTcb - tcbArray;
-  if (mutex->locked_by != me){
-    printk("warning: thread %d does not hold this mutex\n", (int)me);
+  //make sure the thread holds the mutex
+  uint32_t tcb = currentTcb - tcbArray;
+  if (mutex->locked_by != tcb){
+    printk("warning: thread %d does not hold this mutex\n", (int)tcb);
     return;
   }
+  //save state and unlock
   int interruptState = save_interrupt_state_and_disable();
   mutex->locked_by = NOT_LOCKED;
   currentTcb->heldMutexes &= ~(1U << mutex->index);
+  currentTcb->schedulerPrio = recomputePriority(currentTcb);
   for (uint32_t i = 0; i < maxThreads; i++){
     if (tcbArray[i].state == STATE_BLOCKED) 
     tcbArray[i].state = STATE_RUNNABLE;
   }
+  //pend and restore interrupt state
   pend_pendsv();
   restore_interrupt_state(interruptState);
 }

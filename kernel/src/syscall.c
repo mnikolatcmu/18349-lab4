@@ -27,9 +27,6 @@
  
  static char *heapBreak = &__heap_low;
  
- //void *sys_sbrk(UNUSED int incr){
- //  return NULL;
- //}
  void *sys_sbrk(int incr){
    char *prevBreak = heapBreak;
    if ((heapBreak + incr > &__heap_top) || (heapBreak + incr < &__heap_low)) return (void *)-1;
@@ -37,9 +34,6 @@
    return prevBreak;
  }
  
- //int sys_write(UNUSED int file, UNUSED char *ptr, UNUSED int len){
- //  return -1;
- //}
  int sys_write(int file, char *ptr, int len){
    if (file != STDOUT_FILENO) return -1;
    for (int i = 0; i < len; i++){
@@ -48,9 +42,6 @@
    return len;
  }
  
- //int sys_read(UNUSED int file, UNUSED char *ptr, UNUSED int len){
- //  return -1;
- //}
  int sys_read(int file, char *ptr, int len){
    static int lastWasReturn = 0;
    char c;
@@ -98,8 +89,8 @@
    snprintf(str, sizeof(str), "%d", status);
    printk(str);
    uart_flush();
-   lcd_print(str);
    disable_interrupts();
+   lcd_print(str);
    while (1){
      wait_for_interrupt();
    }
